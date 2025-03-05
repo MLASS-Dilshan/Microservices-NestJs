@@ -1,15 +1,27 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Products } from './entity/product.entity';
 import { Repository } from 'typeorm';
 import { CreateProductDto } from './dto/create-product.dto';
+import { Kafka } from 'kafkajs';
 
 @Injectable()
-export class ProductsService {
+export class ProductsService implements OnModuleInit{
+    private readonly Kafka = new Kafka({brokers: ['localhost:9092']})
+    private readonly consumer = this.Kafka.consumer({
+        groupId: 'inventory-service'
+    })
+    private readonly producer = this.Kafka.producer()
     constructor(
         @InjectRepository(Products)
         private readonly productRepository: Repository<Products>
     ) { }
+
+    async onModuleInit() {
+        await this.consumer.connect()
+        await this.producer.connect()
+        await this.consumerOrderCreated()
+    }
 
     async createProducts(createProductDto: CreateProductDto): Promise<Products> {
         const product = this.productRepository.create(createProductDto)
@@ -60,6 +72,36 @@ export class ProductsService {
 
         product.quantity -= quantity
         return this.productRepository.save(product);
+    }
+
+    async consumerOrderCreated () {
+        await this.consumer.subscribe({
+            topic: `order-created`
+        })
+
+        await this.consumer.run({
+            eachMessage: async ({message}) => {
+                const parsedMessage = JSON.parse(message.value.toString());
+    console.log('Received message:', parsedMessage);
+                console.log('new message arrived..................')
+                const {customerId, items, city} = JSON.parse(
+                    message.value.toString()
+                )
+
+                for(const item of items){
+                    await this.reduceStock(item.productId, item.quantity)
+                }
+
+                await this.producer.send({
+                    topic: `order-inventory-update`,
+                    messages: [
+                        {value: JSON.stringify({customerId, items, city})}
+                    ]
+                })
+            }
+        
+            
+        })
     }
 
 

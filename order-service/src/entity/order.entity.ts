@@ -1,5 +1,6 @@
 import { Column, CreateDateColumn, Entity, OneToMany, PrimaryGeneratedColumn } from "typeorm";
 import { OrderItem } from "./order-item.entity";
+import { IsOptional } from "class-validator";
 
 @Entity()
 export class Order {
@@ -15,7 +16,8 @@ export class Order {
     @Column({default: 'PENDING'})
     status : string;
 
-    @Column()
+    @Column({default: 'New York'})
+    @IsOptional()
     city : string;
 
     @OneToMany(() => OrderItem, (orderItem) => orderItem.order, {cascade: true} )
